@@ -1,6 +1,6 @@
 # Team-lead report — generation instructions
 
-You are generating a per-team activity report for the **team lead audience**. Your input is `metrics.json` in the current run directory. Your output is one `team_lead_<team>.docx` per team (Word format — easier to share than markdown), with any charts saved under `charts/` and embedded into the doc.
+You are generating a per-team activity report for the **team lead audience**. Your input is `metrics.json` in the current run directory. Your output is one `team_lead_<team>.docx` per team (Word format — easier to share than markdown). Charts are embedded directly into the docx; no separate output files are needed.
 
 Use **python-docx** for the document and **matplotlib** for the charts. Both are installed in this project's venv via the `[report]` extra. If a dependency is missing, `uv pip install <pkg>` in the project venv before continuing.
 
@@ -48,7 +48,7 @@ Each PR in `metrics.json` has three timestamp fields that determine its state:
 
 ## Visual style
 
-- matplotlib, log scales where appropriate, consistent colors per person within this team's report, PNG output to `charts/`, embedded into the docx via `doc.add_picture()` at ~6 inches.
+- matplotlib, log scales where appropriate, consistent colors per person within this team's report. Embed charts directly into the docx via `doc.add_picture()` at ~6 inches (render to `BytesIO` or a tempfile; no separate `charts/` directory).
 
 ## Document formatting (python-docx)
 

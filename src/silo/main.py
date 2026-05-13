@@ -24,7 +24,7 @@ from .cache import Cache
 from .collectors.calendar import CalendarCollector
 from .collectors.github import GitHubCollector
 from .config import load_run, load_teams
-from .paths import CACHE_DIR, CONFIG_DIR, REPORTS_DIR
+from .paths import CACHE_DIR, CONFIG_DIR, PROJECT_ROOT, REPORTS_DIR
 from .serialize import serialize_run, write_instructions
 
 log = logging.getLogger(__name__)
@@ -90,10 +90,13 @@ def run() -> int:
     instr_path = write_instructions(out_dir, run_cfg.reports)
     gh.close()
 
+    rel_instr = instr_path.relative_to(PROJECT_ROOT) if instr_path.is_relative_to(PROJECT_ROOT) else instr_path
     print("\nRun complete.")
     print(f"  data:         {json_path}")
     print(f"  instructions: {instr_path}")
-    print("\nNext: open this project in Cowork and ask it to follow INSTRUCTIONS.md.")
+    print("\nNext — paste this into Cowork:\n")
+    print(f"  Follow {rel_instr}")
+    print()
     return 0
 
 

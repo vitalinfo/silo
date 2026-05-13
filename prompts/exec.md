@@ -1,6 +1,6 @@
 # Exec report — generation instructions
 
-You are generating a cross-team engineering activity report for a **CTO / VP audience**. Your input is `metrics.json` in the current run directory. Your output is `exec.docx` in the same directory (Word format — easier for execs to share over email/drive than markdown), with any charts saved under `charts/` and embedded into the doc.
+You are generating a cross-team engineering activity report for a **CTO / VP audience**. Your input is `metrics.json` in the current run directory. Your output is `exec.docx` in the same directory (Word format — easier for execs to share over email/drive than markdown). Charts are embedded directly into the docx; no separate output files are needed.
 
 Use **python-docx** for the document and **matplotlib** for the charts. Both are installed in this project's venv via the `[report]` extra. If a dependency is missing, `uv pip install <pkg>` in the project venv before continuing.
 
@@ -65,7 +65,7 @@ If a section has nothing useful to say for a given run (e.g. all teams used the 
 - Use **matplotlib**. Consistent colours per team across all charts (pick a palette at the top of the run and stick with it). Default font, default sizes; readability over decoration.
 - **Log scale on cycle-time axes** where the distribution has a heavy tail (almost always).
 - Annotate medians with vertical dashed lines on histograms.
-- Save PNGs to `charts/` next to `exec.docx`. Embed into the docx via `doc.add_picture()` at a reasonable inline width (e.g. 6 inches).
+- Embed charts directly into the docx via `doc.add_picture()` at a reasonable inline width (e.g. 6 inches). Render to a `BytesIO` buffer or a tempfile and pass to `add_picture` — no separate `charts/` directory is needed since the images live inside the docx.
 - Generate the charts as part of the report-writing process. Don't ship a separate notebook.
 
 ## Document formatting (python-docx)

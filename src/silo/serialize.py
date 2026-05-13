@@ -69,8 +69,7 @@ def write_instructions(out_dir: Path, reports_requested: list[str]) -> Path:
             f"### {kind} report\n"
             f"- Read the instructions: `{prompt_path}`\n"
             f"- Use the data file: `{json_path}`\n"
-            f"- Write the rendered report into this directory as `{kind}.docx` "
-            f"(and any charts under `{out_dir}/charts/`)."
+            f"- Write the rendered report into this directory as `{kind}.docx`."
         )
     body = dedent(f"""\
         # silo run — report generation instructions
@@ -89,8 +88,9 @@ def write_instructions(out_dir: Path, reports_requested: list[str]) -> Path:
 
         - Reports are produced as **`.docx`** (Word) — easier to share with execs than markdown.
           Use `python-docx` (installed via the `[report]` extra) for document construction.
-        - Charts: PNG via matplotlib, saved to `charts/` next to this file, embedded into
-          the docx via `doc.add_picture()`.
+        - Charts are generated with matplotlib and embedded inline via `doc.add_picture()`
+          (BytesIO buffer or temp file is fine; no separate charts directory needed since
+          they live inside the docx).
         - Do not modify `metrics.json` — it is the canonical input.
         - **PR state semantics**: each PR has `merged_at` and `closed_at`. Cycle-time
           and "long-running" analyses must filter to `merged_at is not None`. Closed-not-
