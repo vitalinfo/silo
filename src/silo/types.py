@@ -70,7 +70,7 @@ class BusyBlock(BaseModel):
 
 class PersonMetrics(BaseModel):
     github: str
-    google: str
+    google: str | None = None
     prs_authored: int = 0
     prs_reviewed: int = 0
     comments_left: int = 0

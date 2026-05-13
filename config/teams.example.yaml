@@ -21,3 +21,8 @@ teams:
       - github: carol-gh
         google: carol@example.com
         tz: "America/Los_Angeles"
+
+      # Bots / service accounts: omit `google` (and `tz`). Their PRs are still
+      # collected so throughput counts are accurate, but calendar-derived
+      # metrics are skipped for them.
+      - github: dependabot[bot]

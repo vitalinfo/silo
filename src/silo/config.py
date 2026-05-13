@@ -20,7 +20,9 @@ def _validate_tz(v: str) -> str:
 
 class Member(BaseModel):
     github: str
-    google: EmailStr
+    # Optional: bots (e.g. `dependabot[bot]`) and service accounts don't have a calendar.
+    # When omitted, calendar-derived metrics for this member are skipped.
+    google: EmailStr | None = None
     tz: str = "UTC"
 
     @field_validator("tz")

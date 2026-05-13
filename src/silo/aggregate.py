@@ -45,7 +45,8 @@ def build_period_report(
         prs = gh.prs_authored(m.github, frm, to)
         reviews = gh.reviews_given(m.github, frm, to)
         comments = gh.comments_left(m.github, frm, to)
-        blocks = cal.busy_blocks(m.google, frm, to)
+        # Bots / service accounts have no calendar. Calendar-derived metrics are skipped.
+        blocks = cal.busy_blocks(m.google, frm, to) if m.google else []
         per_person.append((m, prs, reviews, comments, blocks))
 
     # Per-person metrics
@@ -54,6 +55,9 @@ def build_period_report(
         cycle = pr_cycle_time_hours(prs)
         ttfr = time_to_first_review_hours(prs, reviews)  # reviews given to author's PRs
         sizes = pr_sizes_lines(prs)
+        # Calendar-derived metrics are None (not 0) for members without a calendar,
+        # so they don't drag down team averages by pretending they have 0 meetings.
+        has_calendar = m.google is not None
         person_metrics.append(
             PersonMetrics(
                 github=m.github,
@@ -66,10 +70,10 @@ def build_period_report(
                 time_to_first_review_p50_hours=percentile(ttfr, 50),
                 pr_size_p50_lines=percentile(sizes, 50),
                 pr_size_p90_lines=percentile(sizes, 90),
-                meeting_hours_per_week=meeting_hours_per_week(blocks, wh, m.zoneinfo, frm, to),
-                focus_block_hours_per_week=focus_block_hours_per_week(blocks, wh, m.zoneinfo, frm, to),
-                fragmentation_score=fragmentation_score(blocks, wh, m.zoneinfo, frm, to),
-                after_hours_busy_per_week=after_hours_busy_per_week(blocks, wh, m.zoneinfo, frm, to),
+                meeting_hours_per_week=meeting_hours_per_week(blocks, wh, m.zoneinfo, frm, to) if has_calendar else None,
+                focus_block_hours_per_week=focus_block_hours_per_week(blocks, wh, m.zoneinfo, frm, to) if has_calendar else None,
+                fragmentation_score=fragmentation_score(blocks, wh, m.zoneinfo, frm, to) if has_calendar else None,
+                after_hours_busy_per_week=after_hours_busy_per_week(blocks, wh, m.zoneinfo, frm, to) if has_calendar else None,
             )
         )
 
@@ -104,7 +108,9 @@ def build_period_report(
         prs=all_team_prs,
         reviews_given=all_team_reviews,
         comments_left=[c for _, _, _, cmts, _ in per_person for c in cmts],
-        busy_blocks_by_member={m.google: blocks for m, _, _, _, blocks in per_person},
+        busy_blocks_by_member={
+            m.google: blocks for m, _, _, _, blocks in per_person if m.google
+        },
     )
 
     return PeriodReport(

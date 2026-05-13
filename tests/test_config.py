@@ -61,3 +61,10 @@ def test_member_custom_tz_resolves():
         "github": "alice", "google": "alice@example.com", "tz": "Europe/Kyiv",
     })
     assert m.zoneinfo.key == "Europe/Kyiv"
+
+
+def test_member_google_optional_for_bots():
+    """Bots like dependabot[bot] are valid members without a google email."""
+    m = Member.model_validate({"github": "dependabot[bot]"})
+    assert m.google is None
+    assert m.github == "dependabot[bot]"

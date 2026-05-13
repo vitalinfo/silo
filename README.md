@@ -98,6 +98,11 @@ People can contribute across any listed org; the collector merges results.
 be computed against each person's local workday. The `work_hours` shape itself
 (start/end/workdays) is shared across the team.
 
+**Bots / service accounts**: list them as members with `github: dependabot[bot]`
+and omit `google`. Their PRs are collected (so throughput counts are accurate)
+but calendar-derived metrics are skipped. Each PR also has an `is_bot` flag in
+the JSON, derived from the `[bot]` suffix on the GitHub login.
+
 ### `config/run.yaml`
 
 ```yaml
