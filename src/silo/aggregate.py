@@ -1,10 +1,32 @@
-"""Pipeline: collectors -> raw records -> per-person & per-team metrics."""
+"""Collectors -> raw records -> PersonMetrics + TeamMetrics -> PeriodReport.
+
+v1 scope note: team review-health metrics (latency, concentration, % substantive)
+are computed from reviews authored by team members only. Reviews by people
+outside the team on the team's PRs are not collected and therefore not counted.
+This is documented in the exec-report disclaimer.
+"""
 from __future__ import annotations
+
+from statistics import mean
 
 from .collectors.calendar import CalendarCollector
 from .collectors.github import GitHubCollector
 from .config import Period, RunConfig, Team
-from .types import PeriodReport
+from .metrics._stats import percentile
+from .metrics.contribution import gini
+from .metrics.flow import pr_cycle_time_hours, pr_sizes_lines, time_to_first_review_hours
+from .metrics.load import (
+    after_hours_busy_per_week,
+    focus_block_hours_per_week,
+    fragmentation_score,
+    meeting_hours_per_week,
+)
+from .metrics.review_health import (
+    pct_prs_with_substantive_review,
+    review_latency_hours,
+    reviewer_concentration,
+)
+from .types import PeriodReport, PersonMetrics, TeamMetrics
 
 
 def build_period_report(
@@ -14,5 +36,80 @@ def build_period_report(
     gh: GitHubCollector,
     cal: CalendarCollector,
 ) -> PeriodReport:
-    """Collect raw records for one (team, period), compute metrics, return PeriodReport."""
-    raise NotImplementedError
+    wh = run_cfg.work_hours
+    frm, to = period.from_, period.to
+
+    # Per-person collection
+    per_person: list[tuple] = []  # (member, prs, reviews, comments, blocks)
+    for m in team.members:
+        prs = gh.prs_authored(m.github, frm, to)
+        reviews = gh.reviews_given(m.github, frm, to)
+        comments = gh.comments_left(m.github, frm, to)
+        blocks = cal.busy_blocks(m.google, frm, to)
+        per_person.append((m, prs, reviews, comments, blocks))
+
+    # Per-person metrics
+    person_metrics: list[PersonMetrics] = []
+    for m, prs, reviews, comments, blocks in per_person:
+        cycle = pr_cycle_time_hours(prs)
+        ttfr = time_to_first_review_hours(prs, reviews)  # reviews given to author's PRs
+        sizes = pr_sizes_lines(prs)
+        person_metrics.append(
+            PersonMetrics(
+                github=m.github,
+                google=m.google,
+                prs_authored=len(prs),
+                prs_reviewed=len(reviews),
+                comments_left=len(comments),
+                pr_cycle_time_p50_hours=percentile(cycle, 50),
+                pr_cycle_time_p90_hours=percentile(cycle, 90),
+                time_to_first_review_p50_hours=percentile(ttfr, 50),
+                pr_size_p50_lines=percentile(sizes, 50),
+                pr_size_p90_lines=percentile(sizes, 90),
+                meeting_hours_per_week=meeting_hours_per_week(blocks, wh, m.zoneinfo, frm, to),
+                focus_block_hours_per_week=focus_block_hours_per_week(blocks, wh, m.zoneinfo, frm, to),
+                fragmentation_score=fragmentation_score(blocks, wh, m.zoneinfo, frm, to),
+                after_hours_busy_per_week=after_hours_busy_per_week(blocks, wh, m.zoneinfo, frm, to),
+            )
+        )
+
+    # Team-level pools
+    all_team_prs = [pr for _, prs, _, _, _ in per_person for pr in prs]
+    all_team_reviews = [r for _, _, revs, _, _ in per_person for r in revs]
+
+    team_cycle = pr_cycle_time_hours(all_team_prs)
+    team_ttfr = time_to_first_review_hours(all_team_prs, all_team_reviews)
+    team_sizes = pr_sizes_lines(all_team_prs)
+    team_latency = review_latency_hours(all_team_prs, all_team_reviews)
+
+    contribution_values = [
+        float(pm.prs_authored + pm.prs_reviewed + pm.comments_left) for pm in person_metrics
+    ]
+
+    team_metrics = TeamMetrics(
+        team=team.name,
+        pr_cycle_time_p50_hours=percentile(team_cycle, 50),
+        pr_cycle_time_p90_hours=percentile(team_cycle, 90),
+        time_to_first_review_p50_hours=percentile(team_ttfr, 50),
+        pr_size_p50_lines=percentile(team_sizes, 50),
+        review_latency_p50_hours=percentile(team_latency, 50),
+        reviewer_concentration=reviewer_concentration(all_team_reviews),
+        pct_prs_with_substantive_review=pct_prs_with_substantive_review(all_team_prs, all_team_reviews),
+        contribution_gini=gini(contribution_values),
+        meeting_hours_per_week_avg=_avg_skip_none([pm.meeting_hours_per_week for pm in person_metrics]),
+        focus_block_hours_per_week_avg=_avg_skip_none([pm.focus_block_hours_per_week for pm in person_metrics]),
+    )
+
+    return PeriodReport(
+        period_label=period.label,
+        team=team.name,
+        team_metrics=team_metrics,
+        person_metrics=person_metrics,
+    )
+
+
+def _avg_skip_none(values: list[float | None]) -> float | None:
+    real = [v for v in values if v is not None]
+    if not real:
+        return None
+    return mean(real)
