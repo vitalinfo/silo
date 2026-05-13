@@ -10,9 +10,27 @@ import yaml
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 
+def _validate_tz(v: str) -> str:
+    try:
+        ZoneInfo(v)
+    except ZoneInfoNotFoundError as e:
+        raise ValueError(f"unknown timezone: {v}") from e
+    return v
+
+
 class Member(BaseModel):
     github: str
     google: EmailStr
+    tz: str = "UTC"
+
+    @field_validator("tz")
+    @classmethod
+    def _tz_valid(cls, v: str) -> str:
+        return _validate_tz(v)
+
+    @property
+    def zoneinfo(self) -> ZoneInfo:
+        return ZoneInfo(self.tz)
 
 
 class Team(BaseModel):
@@ -62,10 +80,11 @@ _DAY_MAP = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6
 
 
 class WorkHours(BaseModel):
+    """The shape of a workday (start/end wall-clock, which weekdays count).
+    Timezone is per-member, supplied separately to metrics."""
     start: time
     end: time
     workdays: list[Literal["mon", "tue", "wed", "thu", "fri", "sat", "sun"]]
-    tz: str = "UTC"
 
     @model_validator(mode="after")
     def _start_before_end(self) -> "WorkHours":
@@ -73,22 +92,9 @@ class WorkHours(BaseModel):
             raise ValueError("work_hours.start must be before work_hours.end")
         return self
 
-    @field_validator("tz")
-    @classmethod
-    def _tz_valid(cls, v: str) -> str:
-        try:
-            ZoneInfo(v)
-        except ZoneInfoNotFoundError as e:
-            raise ValueError(f"unknown timezone: {v}") from e
-        return v
-
     @property
     def workday_indices(self) -> set[int]:
         return {_DAY_MAP[d] for d in self.workdays}
-
-    @property
-    def zoneinfo(self) -> ZoneInfo:
-        return ZoneInfo(self.tz)
 
 
 ReportKind = Literal["team_lead", "exec"]

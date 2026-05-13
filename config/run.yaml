@@ -23,4 +23,5 @@ work_hours:
   start: "09:00"
   end: "18:00"
   workdays: [mon, tue, wed, thu, fri]
-  tz: "America/New_York"   # IANA name; used to interpret busy blocks for focus/after-hours metrics
+  # Timezone is per-member (see teams.yaml). Same wall-clock workday shape
+  # applies to everyone; their tz is what determines when those hours fall.

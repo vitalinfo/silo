@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from silo.config import RunConfig, TeamsConfig, WorkHours
+from silo.config import Member, RunConfig, TeamsConfig, WorkHours
 
 
 def test_teams_unique_names():
@@ -24,32 +24,40 @@ def test_period_from_after_to_rejected():
             "comparisons": {},
             "reports": ["team_lead"],
             "work_hours": {
-                "start": "09:00", "end": "18:00",
-                "workdays": ["mon"], "tz": "UTC",
+                "start": "09:00", "end": "18:00", "workdays": ["mon"],
             },
-        })
-
-
-def test_work_hours_unknown_tz_rejected():
-    with pytest.raises(ValidationError, match="unknown timezone"):
-        WorkHours.model_validate({
-            "start": "09:00", "end": "18:00",
-            "workdays": ["mon"], "tz": "Mars/Olympus_Mons",
         })
 
 
 def test_work_hours_start_after_end_rejected():
     with pytest.raises(ValidationError, match="start.*before"):
         WorkHours.model_validate({
-            "start": "18:00", "end": "09:00",
-            "workdays": ["mon"], "tz": "UTC",
+            "start": "18:00", "end": "09:00", "workdays": ["mon"],
         })
 
 
-def test_work_hours_zoneinfo_property():
+def test_work_hours_workday_indices():
     wh = WorkHours.model_validate({
-        "start": "09:00", "end": "18:00",
-        "workdays": ["mon", "tue"], "tz": "America/New_York",
+        "start": "09:00", "end": "18:00", "workdays": ["mon", "tue"],
     })
-    assert wh.zoneinfo.key == "America/New_York"
     assert wh.workday_indices == {0, 1}
+
+
+def test_member_tz_default_is_utc():
+    m = Member.model_validate({"github": "alice", "google": "alice@example.com"})
+    assert m.tz == "UTC"
+    assert m.zoneinfo.key == "UTC"
+
+
+def test_member_unknown_tz_rejected():
+    with pytest.raises(ValidationError, match="unknown timezone"):
+        Member.model_validate({
+            "github": "alice", "google": "alice@example.com", "tz": "Mars/Olympus_Mons",
+        })
+
+
+def test_member_custom_tz_resolves():
+    m = Member.model_validate({
+        "github": "alice", "google": "alice@example.com", "tz": "Europe/Kyiv",
+    })
+    assert m.zoneinfo.key == "Europe/Kyiv"

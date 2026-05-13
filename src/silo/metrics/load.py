@@ -1,13 +1,15 @@
 """Calendar-derived load metrics: meetings, focus blocks, fragmentation, after-hours.
 
 All metrics are normalized to per-week rates so periods of different lengths can be
-compared. Busy blocks come in as tz-aware datetimes (UTC from freebusy). Work
-windows are interpreted in `WorkHours.tz` and converted to UTC for intersection.
+compared. Busy blocks come in as tz-aware datetimes (UTC from freebusy). Each
+member supplies their own `tz` (IANA) and the work-window wall-clock shape is
+the same for the whole team via `WorkHours` (start, end, workdays).
 """
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
 from typing import Iterator
+from zoneinfo import ZoneInfo
 
 from ..config import WorkHours
 from ..types import BusyBlock
@@ -16,9 +18,11 @@ FOCUS_BLOCK_MIN_HOURS = 2.0
 _SECONDS_PER_HOUR = 3600.0
 
 
-def meeting_hours_per_week(blocks: list[BusyBlock], wh: WorkHours, frm: date, to: date) -> float:
+def meeting_hours_per_week(
+    blocks: list[BusyBlock], wh: WorkHours, tz: ZoneInfo, frm: date, to: date
+) -> float:
     """Total busy hours that intersect a work-window, per week."""
-    work_windows = list(_workday_windows(frm, to, wh))
+    work_windows = list(_workday_windows(frm, to, wh, tz))
     total_seconds = 0.0
     for b in blocks:
         for ws, we in work_windows:
@@ -29,12 +33,12 @@ def meeting_hours_per_week(blocks: list[BusyBlock], wh: WorkHours, frm: date, to
 
 
 def focus_block_hours_per_week(
-    blocks: list[BusyBlock], wh: WorkHours, frm: date, to: date
+    blocks: list[BusyBlock], wh: WorkHours, tz: ZoneInfo, frm: date, to: date
 ) -> float:
     """Per-workday: find gaps between busy blocks within the work window. Sum gaps
     >= FOCUS_BLOCK_MIN_HOURS. Return total focus hours per week."""
     total_seconds = 0.0
-    for ws, we in _workday_windows(frm, to, wh):
+    for ws, we in _workday_windows(frm, to, wh, tz):
         day_busy = sorted(
             [
                 inter
@@ -57,12 +61,14 @@ def focus_block_hours_per_week(
     return (total_seconds / _SECONDS_PER_HOUR) / _period_weeks(frm, to)
 
 
-def fragmentation_score(blocks: list[BusyBlock], wh: WorkHours, frm: date, to: date) -> float:
+def fragmentation_score(
+    blocks: list[BusyBlock], wh: WorkHours, tz: ZoneInfo, frm: date, to: date
+) -> float:
     """Average busy-blocks-per-work-hour across workdays. Higher = more fragmented.
 
     Captures the intuition that 4 one-hour meetings split across a day is worse
     than one 4-hour block — same total time, different shape."""
-    work_windows = list(_workday_windows(frm, to, wh))
+    work_windows = list(_workday_windows(frm, to, wh, tz))
     if not work_windows:
         return 0.0
     total_blocks = 0
@@ -82,13 +88,13 @@ def fragmentation_score(blocks: list[BusyBlock], wh: WorkHours, frm: date, to: d
 
 
 def after_hours_busy_per_week(
-    blocks: list[BusyBlock], wh: WorkHours, frm: date, to: date
+    blocks: list[BusyBlock], wh: WorkHours, tz: ZoneInfo, frm: date, to: date
 ) -> float:
     """Busy hours OUTSIDE work windows (evenings, weekends), per week."""
-    period_start = datetime.combine(frm, datetime.min.time(), tzinfo=wh.zoneinfo).astimezone(timezone.utc)
-    period_end = datetime.combine(to, datetime.max.time(), tzinfo=wh.zoneinfo).astimezone(timezone.utc)
+    period_start = datetime.combine(frm, datetime.min.time(), tzinfo=tz).astimezone(timezone.utc)
+    period_end = datetime.combine(to, datetime.max.time(), tzinfo=tz).astimezone(timezone.utc)
 
-    work_windows = list(_workday_windows(frm, to, wh))
+    work_windows = list(_workday_windows(frm, to, wh, tz))
     after_seconds = 0.0
     for b in blocks:
         # Clip block to the period boundaries.
@@ -109,19 +115,20 @@ def after_hours_busy_per_week(
 
 # --- helpers --------------------------------------------------------------
 
-def _work_window_for_day(d: date, wh: WorkHours) -> tuple[datetime, datetime]:
-    tz = wh.zoneinfo
+def _work_window_for_day(d: date, wh: WorkHours, tz: ZoneInfo) -> tuple[datetime, datetime]:
     start_local = datetime.combine(d, wh.start, tzinfo=tz)
     end_local = datetime.combine(d, wh.end, tzinfo=tz)
     return start_local.astimezone(timezone.utc), end_local.astimezone(timezone.utc)
 
 
-def _workday_windows(frm: date, to: date, wh: WorkHours) -> Iterator[tuple[datetime, datetime]]:
+def _workday_windows(
+    frm: date, to: date, wh: WorkHours, tz: ZoneInfo
+) -> Iterator[tuple[datetime, datetime]]:
     cur = frm
     workdays = wh.workday_indices
     while cur <= to:
         if cur.weekday() in workdays:
-            yield _work_window_for_day(cur, wh)
+            yield _work_window_for_day(cur, wh, tz)
         cur += timedelta(days=1)
 
 

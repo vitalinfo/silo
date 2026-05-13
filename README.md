@@ -78,9 +78,18 @@ teams:
     members:
       - github: alice-gh
         google: alice@example.com
+        tz: "America/New_York"   # IANA name; defaults to UTC if omitted
+      - github: bob-gh
+        google: bob@example.com
+        tz: "Europe/Kyiv"
 ```
 
 People can contribute across any listed org; the collector merges results.
+
+**Per-member timezone**: each member declares their IANA timezone. This is
+used to interpret the `work_hours` wall-clock shape (e.g. 9–18) for that
+specific person, so focus-block and after-hours metrics are computed against
+the right local day. Defaults to `UTC` if omitted.
 
 ### `config/run.yaml`
 
@@ -103,7 +112,8 @@ work_hours:
   start: "09:00"
   end: "18:00"
   workdays: [mon, tue, wed, thu, fri]
-  tz: "America/New_York"         # IANA name; one tz applies to all members in v1
+  # Timezone is per-member (see teams.yaml). The wall-clock workday shape
+  # here applies to everyone; each member's tz determines when those hours fall.
 ```
 
 ## Smoke tests
@@ -191,4 +201,4 @@ silo/
   per-week rates) so that teams with different work shapes aren't ranked unfairly.
 - The team-lead report shows per-person tables; the exec report deliberately does not.
 - Metrics are intentionally framed as discussion prompts in the narrative; no scores or rankings are produced.
-- One timezone applies to all members in v1. Per-member timezones can be added later.
+- Each member supplies their own IANA timezone in `teams.yaml`; the `work_hours` shape (start/end/workdays) is shared across the team.
