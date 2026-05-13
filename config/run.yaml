@@ -1,0 +1,26 @@
+periods:
+  - label: Q1
+    from: 2026-01-01
+    to: 2026-03-31
+  - label: Q2_so_far
+    from: 2026-04-01
+    to: 2026-05-13
+
+# "all" or a list of team names from teams.yaml
+teams: all
+
+comparisons:
+  period_over_period: true   # compare each team across the periods listed above
+  cross_team: true           # compare teams within the latest period
+
+reports:
+  - team_lead
+  - exec
+
+# Local work hours used for focus-block + after-hours metrics.
+# 24-hour clock; assumed in each person's local time (calendar API returns events in their TZ).
+work_hours:
+  start: "09:00"
+  end: "18:00"
+  workdays: [mon, tue, wed, thu, fri]
+  tz: "America/New_York"   # IANA name; used to interpret busy blocks for focus/after-hours metrics
