@@ -1,3 +1,5 @@
+# Copy to run.yaml and edit for each report run. run.yaml is gitignored.
+
 periods:
   - label: Q1
     from: 2026-01-01
@@ -17,11 +19,9 @@ reports:
   - team_lead
   - exec
 
-# Local work hours used for focus-block + after-hours metrics.
-# 24-hour clock; assumed in each person's local time (calendar API returns events in their TZ).
+# Wall-clock workday shape, shared across the team. Each member's timezone
+# (in teams.yaml) determines when these hours fall in real (UTC) time.
 work_hours:
   start: "09:00"
   end: "18:00"
   workdays: [mon, tue, wed, thu, fri]
-  # Timezone is per-member (see teams.yaml). Same wall-clock workday shape
-  # applies to everyone; their tz is what determines when those hours fall.

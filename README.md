@@ -32,7 +32,12 @@ Requires Python 3.11+ and [uv](https://docs.astral.sh/uv/).
 uv venv --python 3.11
 uv pip install -e ".[dev]"
 cp .env.example .env
+cp config/teams.example.yaml config/teams.yaml
+cp config/run.example.yaml config/run.yaml
 ```
+
+`config/teams.yaml`, `config/run.yaml`, and `.env` are all gitignored — only the
+`*.example.yaml` templates are tracked. Edit the copies, not the templates.
 
 ### `.env` values
 
@@ -162,8 +167,8 @@ Or delete `.cache/silo.sqlite` entirely.
 ```
 silo/
 ├── config/
-│   ├── teams.yaml              # team → members; one source of truth
-│   └── run.yaml                # what to analyze this run
+│   ├── teams.example.yaml      # template; copy to teams.yaml (gitignored)
+│   └── run.example.yaml        # template; copy to run.yaml (gitignored)
 ├── src/silo/
 │   ├── config.py               # Pydantic schemas for both yamls
 │   ├── cache.py                # SQLite-backed raw-record cache

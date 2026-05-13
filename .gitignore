@@ -1,5 +1,9 @@
 .env
 .venv/
+
+# Real configs (kept outside source control; copy from *.example.yaml)
+config/teams.yaml
+config/run.yaml
 __pycache__/
 *.pyc
 *.egg-info/
