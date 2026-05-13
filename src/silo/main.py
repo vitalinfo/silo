@@ -1,9 +1,12 @@
-"""Entry point: load configs, collect, aggregate, render reports.
+"""Entry point: load configs, collect data, write metrics.json + INSTRUCTIONS.md.
+
+silo's job ends with the JSON. Cowork is invoked separately (open the project,
+ask it to follow the generated INSTRUCTIONS.md) to produce the actual report
+markdown + charts.
 
 Usage:
-    silo                       # read config/teams.yaml + config/run.yaml, write reports/<ts>/
+    silo                       # read config/teams.yaml + config/run.yaml
     silo --no-cache            # force fresh fetch (cache still updated)
-    silo --skip-narrative      # render markdown without Claude API calls
 """
 from __future__ import annotations
 
@@ -20,10 +23,9 @@ from .aggregate import build_period_report
 from .cache import Cache
 from .collectors.calendar import CalendarCollector
 from .collectors.github import GitHubCollector
-from .config import RunConfig, TeamsConfig, load_run, load_teams
+from .config import load_run, load_teams
 from .paths import CACHE_DIR, CONFIG_DIR, REPORTS_DIR
-from .report import exec as exec_report
-from .report import team_lead
+from .serialize import serialize_run, write_instructions
 
 log = logging.getLogger(__name__)
 
@@ -31,11 +33,6 @@ log = logging.getLogger(__name__)
 def run() -> int:
     parser = argparse.ArgumentParser(prog="silo", description=__doc__)
     parser.add_argument("--no-cache", action="store_true", help="force fresh fetch")
-    parser.add_argument(
-        "--skip-narrative",
-        action="store_true",
-        help="render markdown without calling Claude (useful for dry runs)",
-    )
     parser.add_argument(
         "--teams-config",
         default=str(CONFIG_DIR / "teams.yaml"),
@@ -54,8 +51,6 @@ def run() -> int:
     gh_token = os.environ.get("GITHUB_TOKEN")
     google_id = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
     google_secret = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
-
     missing = [
         name
         for name, val in [
@@ -67,12 +62,6 @@ def run() -> int:
     ]
     if missing:
         print(f"missing env vars: {', '.join(missing)}", file=sys.stderr)
-        return 1
-    if not args.skip_narrative and not anthropic_key:
-        print(
-            "ANTHROPIC_API_KEY missing. Pass --skip-narrative to render without it.",
-            file=sys.stderr,
-        )
         return 1
 
     teams_cfg = load_teams(Path(args.teams_config))
@@ -91,28 +80,20 @@ def run() -> int:
     gh = GitHubCollector(gh_token, teams_cfg.github_orgs, cache)
     cal = CalendarCollector(google_id, google_secret, cache)
 
-    # Build PeriodReports for every (team, period). Cache makes repeats cheap.
     all_reports = []
     for team in teams:
         for period in periods:
             log.info("aggregating team=%s period=%s", team.name, period.label)
             all_reports.append(build_period_report(team, period, run_cfg, gh, cal))
 
-    api_key = None if args.skip_narrative else anthropic_key
-    written: list[Path] = []
-
-    if "team_lead" in run_cfg.reports:
-        for team in teams:
-            team_reports = [r for r in all_reports if r.team == team.name]
-            written.append(team_lead.render(team.name, team_reports, out_dir, api_key))
-
-    if "exec" in run_cfg.reports:
-        written.append(exec_report.render(all_reports, out_dir, api_key))
-
+    json_path = serialize_run(run_cfg, teams_cfg, teams, all_reports, out_dir)
+    instr_path = write_instructions(out_dir, run_cfg.reports)
     gh.close()
-    print("\nReports written:")
-    for p in written:
-        print(f"  {p}")
+
+    print("\nRun complete.")
+    print(f"  data:         {json_path}")
+    print(f"  instructions: {instr_path}")
+    print("\nNext: open this project in Cowork and ask it to follow INSTRUCTIONS.md.")
     return 0
 
 

@@ -1,7 +1,7 @@
 """Raw + aggregated domain types shared across collectors, metrics, and reports."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel
@@ -10,6 +10,17 @@ from pydantic import BaseModel
 # --- Raw GitHub records ---------------------------------------------------
 
 ReviewState = Literal["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"]
+
+
+class Review(BaseModel):
+    pr_org: str
+    pr_repo: str
+    pr_number: int
+    pr_author: str
+    reviewer: str  # gh login
+    state: ReviewState
+    submitted_at: datetime
+    body_chars: int
 
 
 class PullRequest(BaseModel):
@@ -22,17 +33,18 @@ class PullRequest(BaseModel):
     closed_at: datetime | None
     additions: int
     deletions: int
-
-
-class Review(BaseModel):
-    pr_org: str
-    pr_repo: str
-    pr_number: int
-    pr_author: str
-    reviewer: str  # gh login
-    state: ReviewState
-    submitted_at: datetime
-    body_chars: int
+    # Fields below default to safe zero/empty values so tests and ad-hoc construction
+    # don't need to set them. The collector always populates them from GraphQL.
+    title: str = ""
+    url: str = ""
+    is_bot: bool = False
+    commits_count: int = 0
+    # Count of reviewers requested but who never submitted a review. For a merged PR
+    # this is effectively the "pending review requests at merge" snapshot.
+    pending_review_requests: int = 0
+    # All reviews on this PR, regardless of reviewer. Lets downstream analysis compute
+    # review counts/latency without a separate per-PR query.
+    reviews: list[Review] = []
 
 
 class IssueComment(BaseModel):
@@ -87,8 +99,20 @@ class TeamMetrics(BaseModel):
     focus_block_hours_per_week_avg: float | None = None
 
 
+class RawPeriodData(BaseModel):
+    """Raw collector output for one (team, period). Carried alongside metrics so the
+    JSON serializer can dump everything Cowork might want to analyse downstream."""
+    prs: list[PullRequest] = []                    # team-authored PRs (with embedded reviews)
+    reviews_given: list[Review] = []               # by team members on others' PRs
+    comments_left: list[IssueComment] = []         # by team members on others' PRs
+    busy_blocks_by_member: dict[str, list[BusyBlock]] = {}  # google email -> blocks
+
+
 class PeriodReport(BaseModel):
     period_label: str
+    period_from: date
+    period_to: date
     team: str
     team_metrics: TeamMetrics
     person_metrics: list[PersonMetrics]
+    raw: RawPeriodData | None = None

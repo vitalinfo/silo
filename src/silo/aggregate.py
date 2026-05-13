@@ -26,7 +26,7 @@ from .metrics.review_health import (
     review_latency_hours,
     reviewer_concentration,
 )
-from .types import PeriodReport, PersonMetrics, TeamMetrics
+from .types import PeriodReport, PersonMetrics, RawPeriodData, TeamMetrics
 
 
 def build_period_report(
@@ -100,11 +100,21 @@ def build_period_report(
         focus_block_hours_per_week_avg=_avg_skip_none([pm.focus_block_hours_per_week for pm in person_metrics]),
     )
 
+    raw = RawPeriodData(
+        prs=all_team_prs,
+        reviews_given=all_team_reviews,
+        comments_left=[c for _, _, _, cmts, _ in per_person for c in cmts],
+        busy_blocks_by_member={m.google: blocks for m, _, _, _, blocks in per_person},
+    )
+
     return PeriodReport(
         period_label=period.label,
+        period_from=frm,
+        period_to=to,
         team=team.name,
         team_metrics=team_metrics,
         person_metrics=person_metrics,
+        raw=raw,
     )
 
 

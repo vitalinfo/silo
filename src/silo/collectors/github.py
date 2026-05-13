@@ -30,7 +30,6 @@ from ._graphql import (
 log = logging.getLogger(__name__)
 
 VALID_REVIEW_STATES = {"APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"}
-PAGE_SIZE_PRS = 100      # PRs-only query is light
 PAGE_SIZE_NESTED = 50    # PRs + reviews/comments — keep nested cost reasonable
 
 
@@ -56,19 +55,28 @@ class GitHubCollector:
         for org in self._orgs:
             q = f"is:pr author:{gh_login} org:{org} created:{frm.isoformat()}..{to.isoformat()}"
             log.info("[gh] %s", q)
-            for node in self._search(QUERY_PRS_AUTHORED, q, PAGE_SIZE_PRS):
+            for node in self._search(QUERY_PRS_AUTHORED, q, PAGE_SIZE_NESTED):
                 author = (node.get("author") or {}).get("login") or "ghost"
+                pr_org = node["repository"]["owner"]["login"]
+                pr_repo = node["repository"]["name"]
+                pr_number = node["number"]
                 results.append(
                     PullRequest(
-                        org=node["repository"]["owner"]["login"],
-                        repo=node["repository"]["name"],
-                        number=node["number"],
+                        org=pr_org,
+                        repo=pr_repo,
+                        number=pr_number,
+                        title=node.get("title") or "",
+                        url=node.get("url") or "",
                         author=author,
+                        is_bot=author.endswith("[bot]"),
                         created_at=_parse_iso(node["createdAt"]),
                         merged_at=_parse_iso(node.get("mergedAt")),
                         closed_at=_parse_iso(node.get("closedAt")),
                         additions=node.get("additions", 0),
                         deletions=node.get("deletions", 0),
+                        commits_count=(node.get("commits") or {}).get("totalCount", 0),
+                        pending_review_requests=(node.get("reviewRequests") or {}).get("totalCount", 0),
+                        reviews=_parse_reviews(node, pr_org, pr_repo, pr_number, author),
                     )
                 )
         self._cache.put(
@@ -197,3 +205,36 @@ def _parse_iso(s: str | None) -> datetime | None:
     if not s:
         return None
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _parse_reviews(
+    node: dict, pr_org: str, pr_repo: str, pr_number: int, pr_author: str
+) -> list[Review]:
+    """Extract all reviews from a PR node (PENDING / unknown states skipped)."""
+    out: list[Review] = []
+    reviews_conn = node.get("reviews") or {}
+    if reviews_conn.get("totalCount", 0) > 100:
+        log.warning(
+            "PR %s/%s#%s has >100 reviews; only first 100 fetched", pr_org, pr_repo, pr_number
+        )
+    for r in reviews_conn.get("nodes") or []:
+        state = r.get("state")
+        if state not in VALID_REVIEW_STATES:
+            continue
+        submitted = _parse_iso(r.get("submittedAt"))
+        if submitted is None:
+            continue
+        reviewer = (r.get("author") or {}).get("login") or "ghost"
+        out.append(
+            Review(
+                pr_org=pr_org,
+                pr_repo=pr_repo,
+                pr_number=pr_number,
+                pr_author=pr_author,
+                reviewer=reviewer,
+                state=state,  # type: ignore[arg-type]
+                submitted_at=submitted,
+                body_chars=len(r.get("bodyText") or ""),
+            )
+        )
+    return out

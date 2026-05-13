@@ -83,6 +83,8 @@ query($q: String!, $first: Int!, $after: String) {
     nodes {
       ... on PullRequest {
         number
+        title
+        url
         createdAt
         mergedAt
         closedAt
@@ -90,6 +92,17 @@ query($q: String!, $first: Int!, $after: String) {
         deletions
         author { login }
         repository { name owner { login } }
+        commits { totalCount }
+        reviewRequests { totalCount }
+        reviews(first: 100) {
+          totalCount
+          nodes {
+            author { login }
+            state
+            submittedAt
+            bodyText
+          }
+        }
       }
     }
   }

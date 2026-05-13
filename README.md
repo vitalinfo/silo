@@ -2,27 +2,34 @@
 
 Team and person velocity / contribution analysis from GitHub + Google Calendar.
 
-Pulls PRs, reviews, comments (GitHub GraphQL) and busy-time intervals (Google
-Calendar freebusy), aggregates them into per-person and per-team metrics over
-configurable periods, and renders two markdown reports:
+silo collects pull requests (with reviews, commits, pending requests), comments,
+and busy-time intervals over configurable periods, aggregates them into per-person
+and per-team metrics, and emits a single `metrics.json` plus an `INSTRUCTIONS.md`
+pointer.
 
-- **Team-lead report** — per-person detail for one team, period-over-period delta, narrative paragraphs.
-- **Exec report** — team-level metrics only (no per-person), cross-team comparison on normalized metrics, narrative-led.
+The actual report — markdown, tables, charts, narrative — is produced by **Cowork**
+reading those files. Two report shapes are supported via tracked prompt templates:
 
-The narrative is generated via the Claude API. Metrics are framed as "patterns
-worth discussing," not scores or rankings.
+- **Team-lead report** — per-person breakdown for one team, period delta, patterns for 1:1 / retro.
+- **Exec report** — cross-team comparison, normalized metrics, charts, recommendations, explicit disclaimer.
 
-## What it measures
+silo is responsible for collection + serialization. Cowork is responsible for analysis + presentation. This split means:
 
-| Group | Metric | Used in |
+- silo has no LLM dependency, no chart library, no template engine. Tiny surface, easy to extend.
+- Report shape is editable as plain markdown in `prompts/` — no code change to tune what gets generated.
+- Cowork uses your existing subscription; no separate Anthropic API key needed.
+
+## What gets collected
+
+| Source | Field | Notes |
 |---|---|---|
-| Flow | PR cycle time (p50/p90), time-to-first-review, PR size | both reports |
-| Review health | Median review latency, reviewer concentration, % PRs with substantive review | both reports |
-| Load | Meeting hours, focus-block hours, fragmentation, after-hours busy time | both reports (per-person in team-lead, team avg in exec) |
-| Contribution | PRs authored / reviewed / comments left per person; within-team Gini | team-lead only |
+| GitHub PRs (authored by team) | title, url, author, created/merged/closed, additions, deletions, commits count, pending review requests at merge, all reviews on the PR, bot flag | via GraphQL, multi-org, paginated |
+| GitHub reviews (by team members) | state, submitted_at, body length, reviewer, PR ref | the "what did this person review outside their own PRs" set |
+| GitHub comments (by team members) | author, created_at, body length, PR ref | top-level PR comments only (not inline) |
+| Google Calendar | busy intervals per member | freebusy API; no event titles, no attendees |
 
-The exec report deliberately omits per-person data and includes a "what this
-measures / does not measure" disclaimer.
+All raw records are cached locally in `.cache/silo.sqlite` so re-runs over the
+same window are near-instant.
 
 ## Setup
 
@@ -36,7 +43,7 @@ cp config/teams.example.yaml config/teams.yaml
 cp config/run.example.yaml config/run.yaml
 ```
 
-`config/teams.yaml`, `config/run.yaml`, and `.env` are all gitignored — only the
+`config/teams.yaml`, `config/run.yaml`, and `.env` are gitignored — only the
 `*.example.yaml` templates are tracked. Edit the copies, not the templates.
 
 ### `.env` values
@@ -45,28 +52,24 @@ cp config/run.example.yaml config/run.yaml
 GITHUB_TOKEN=ghp_...                  # classic PAT, scopes: repo + read:org
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
-ANTHROPIC_API_KEY=sk-ant-...
 ```
+
+No Anthropic key needed — narrative generation runs through Cowork.
 
 **GitHub token** — use a **classic PAT** (Settings → Developer settings → Personal
 access tokens → *Tokens (classic)*). Fine-grained PATs are locked to a single
-org, which doesn't work when analyzing across multiple orgs. Scopes needed:
-`repo` + `read:org`. If any of your orgs enforces SAML SSO, click "Configure SSO"
-next to the token and authorize each org.
+resource owner, which doesn't work across multiple orgs. Scopes: `repo` + `read:org`.
+If any org enforces SAML SSO, "Configure SSO" next to the token and authorize each org.
 
 **Google OAuth** — In [Google Cloud Console](https://console.cloud.google.com/):
-1. Create a project (or use an existing one).
+1. Create or reuse a project.
 2. Enable the **Google Calendar API**.
-3. Credentials → Create OAuth client ID → **Desktop app**. Copy the client ID and secret into `.env`.
-4. First run of the calendar collector pops a browser tab for consent. The
-   refresh token is cached at `~/.config/silo/google_token.json` and reused.
+3. Credentials → Create OAuth client ID → **Desktop app**. Copy ID + secret into `.env`.
+4. First run pops a browser tab for consent. Refresh token caches at `~/.config/silo/google_token.json`.
 
-Freebusy works against any calendar in your Workspace that allows freebusy
-sharing — which is the default for most orgs. If your org disables that, the
-calendar half of the tool returns empty results and only the GitHub metrics
-will be meaningful.
-
-**Anthropic key** — used only for narrative generation in the renderers.
+Freebusy works against any calendar shared via Workspace default settings — true
+for most orgs. If yours blocks it, calendar metrics will be empty and only GitHub
+data is meaningful.
 
 ## Configuration
 
@@ -91,10 +94,9 @@ teams:
 
 People can contribute across any listed org; the collector merges results.
 
-**Per-member timezone**: each member declares their IANA timezone. This is
-used to interpret the `work_hours` wall-clock shape (e.g. 9–18) for that
-specific person, so focus-block and after-hours metrics are computed against
-the right local day. Defaults to `UTC` if omitted.
+**Per-member timezone** lets the calendar load metrics (focus blocks, after-hours)
+be computed against each person's local workday. The `work_hours` shape itself
+(start/end/workdays) is shared across the team.
 
 ### `config/run.yaml`
 
@@ -109,58 +111,75 @@ periods:
 
 teams: all                       # or [backend, frontend]
 comparisons:
-  period_over_period: true       # same team, different periods
-  cross_team: true               # cross-team within the latest period
-reports: [team_lead, exec]
+  period_over_period: true
+  cross_team: true
+reports: [team_lead, exec]       # which prompt templates to surface in INSTRUCTIONS.md
 
 work_hours:
   start: "09:00"
   end: "18:00"
   workdays: [mon, tue, wed, thu, fri]
-  # Timezone is per-member (see teams.yaml). The wall-clock workday shape
-  # here applies to everyone; each member's tz determines when those hours fall.
 ```
 
-## Smoke tests
+## Running
 
-Before running a full report, confirm each collector works against your real
-credentials:
+### 1. Collect data + write the JSON
+
+```bash
+.venv/bin/silo                 # uses config/teams.yaml + config/run.yaml
+.venv/bin/silo --no-cache      # force fresh fetch
+```
+
+This writes:
+
+```
+reports/<timestamp>/
+├── metrics.json           # all raw + aggregated data
+└── INSTRUCTIONS.md        # pointer for Cowork to follow
+```
+
+### 2. Generate the actual report in Cowork
+
+Open the silo project in Cowork (or any Claude Code session in this directory) and ask:
+
+> Follow `reports/<timestamp>/INSTRUCTIONS.md`.
+
+Cowork reads the instructions + `metrics.json`, follows the prompt template (e.g.
+`prompts/exec.md`), generates matplotlib charts, and writes a **Word (`.docx`)**
+report into the same directory. Word format was picked over markdown because it's
+easier to share with non-developer audiences.
+
+Cowork uses `python-docx` and `matplotlib` for this. Install them once:
+
+```bash
+uv pip install -e ".[dev,report]"
+```
+
+### Smoke tests for the collectors
+
+Before a full run, confirm each collector against real credentials:
 
 ```bash
 .venv/bin/python scripts/smoke_github.py YOUR_GH_HANDLE
 .venv/bin/python scripts/smoke_github.py YOUR_GH_HANDLE 60          # last 60 days
-.venv/bin/python scripts/smoke_github.py YOUR_GH_HANDLE --no-cache  # force fresh
+.venv/bin/python scripts/smoke_github.py YOUR_GH_HANDLE --no-cache
 
 .venv/bin/python scripts/smoke_calendar.py you@yourcompany.com
 .venv/bin/python scripts/smoke_calendar.py coworker@yourcompany.com
 ```
 
-The smokes print one log line per GraphQL query so you can see progress.
-Cached results are reused on re-runs unless `--no-cache` is passed.
-
-## Running the report (coming next)
-
-Once wired end-to-end:
-
-```bash
-.venv/bin/silo
-```
-
-Reads `config/teams.yaml` + `config/run.yaml`, collects data into
-`.cache/silo.sqlite`, writes `reports/<timestamp>/team_lead.md` and
-`reports/<timestamp>/exec.md`.
+The smokes log one line per query so progress is visible.
 
 ## Caching
 
-All raw collector output is cached in `.cache/silo.sqlite`, keyed by
-`(source, entity, from_date, to_date)`. Re-running a report over the same
-window is near-instant. To force a fresh fetch:
+`.cache/silo.sqlite` keys raw records by `(source, entity, from_date, to_date)`.
+Re-running over the same window is near-instant. To bypass:
 
 ```bash
 .venv/bin/silo --no-cache
 ```
 
-Or delete `.cache/silo.sqlite` entirely.
+Or delete `.cache/silo.sqlite`.
 
 ## Project layout
 
@@ -169,6 +188,9 @@ silo/
 ├── config/
 │   ├── teams.example.yaml      # template; copy to teams.yaml (gitignored)
 │   └── run.example.yaml        # template; copy to run.yaml (gitignored)
+├── prompts/
+│   ├── exec.md                 # Cowork instructions for the exec report
+│   └── team_lead.md            # Cowork instructions for the team-lead report
 ├── src/silo/
 │   ├── config.py               # Pydantic schemas for both yamls
 │   ├── cache.py                # SQLite-backed raw-record cache
@@ -176,22 +198,13 @@ silo/
 │   │   ├── github.py           # GraphQL: PRs, reviews, comments
 │   │   ├── calendar.py         # OAuth + freebusy
 │   │   └── _graphql.py         # tiny GraphQL client (httpx)
-│   ├── metrics/
-│   │   ├── flow.py
-│   │   ├── review_health.py
-│   │   ├── load.py
-│   │   ├── contribution.py
-│   │   └── _stats.py           # percentile helper
-│   ├── report/
-│   │   ├── team_lead.py
-│   │   ├── exec.py
-│   │   └── narrative.py        # Claude API
+│   ├── metrics/                # pure-function metric implementations
 │   ├── aggregate.py            # collectors → metrics → PeriodReport
+│   ├── serialize.py            # PeriodReport + run config → metrics.json + INSTRUCTIONS.md
+│   ├── types.py                # domain types
 │   └── main.py                 # entrypoint
-├── scripts/
-│   ├── smoke_github.py
-│   └── smoke_calendar.py
-└── tests/                      # pytest suite for metric math + config validation
+├── scripts/                    # smoke tests for each collector
+└── tests/                      # pytest suite for metric math + serializer
 ```
 
 ## Development
@@ -202,8 +215,8 @@ silo/
 
 ## Design notes
 
-- Cross-team comparison is restricted to normalized metrics (latency, ratios,
-  per-week rates) so that teams with different work shapes aren't ranked unfairly.
-- The team-lead report shows per-person tables; the exec report deliberately does not.
-- Metrics are intentionally framed as discussion prompts in the narrative; no scores or rankings are produced.
-- Each member supplies their own IANA timezone in `teams.yaml`; the `work_hours` shape (start/end/workdays) is shared across the team.
+- silo's contract: collect data → emit comprehensive JSON. No narrative, no charts, no opinions.
+- Cowork is the analysis + presentation layer. Edit `prompts/*.md` to change the report shape; no Python change required.
+- Cross-team comparison and ranking framing are controlled by the prompts, not by code. The defaults forbid rankings, require citing numbers, and include a "what this measures / does not measure" disclaimer.
+- Each member supplies their own IANA timezone in `teams.yaml`. The `work_hours` wall-clock shape is shared across the team.
+- The `prs[].reviews` list captures **all** reviews on a PR (not only by team members), so review-health metrics aren't restricted to internal-only reviews.
