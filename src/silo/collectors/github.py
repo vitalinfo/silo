@@ -51,12 +51,19 @@ class GitHubCollector:
             log.info("[cache] prs_authored %s %s..%s = %d", gh_login, frm, to, len(cached))
             return [PullRequest.model_validate(r) for r in cached]
 
+        is_bot_query = gh_login.endswith("[bot]")
+        query_login = _author_query_value(gh_login)
+
         results: list[PullRequest] = []
         for org in self._orgs:
-            q = f"is:pr author:{gh_login} org:{org} created:{frm.isoformat()}..{to.isoformat()}"
+            q = f"is:pr author:{query_login} org:{org} created:{frm.isoformat()}..{to.isoformat()}"
             log.info("[gh] %s", q)
             for node in self._search(QUERY_PRS_AUTHORED, q, PAGE_SIZE_NESTED):
-                author = (node.get("author") or {}).get("login") or "ghost"
+                response_author = (node.get("author") or {}).get("login") or "ghost"
+                # When we queried `app/<name>`, GraphQL may return the bot login without
+                # the [bot] suffix. Normalize back to the canonical form so downstream
+                # consumers see consistent `is_bot` and author strings.
+                author = gh_login if is_bot_query else response_author
                 pr_org = node["repository"]["owner"]["login"]
                 pr_repo = node["repository"]["name"]
                 pr_number = node["number"]
@@ -68,7 +75,7 @@ class GitHubCollector:
                         title=node.get("title") or "",
                         url=node.get("url") or "",
                         author=author,
-                        is_bot=author.endswith("[bot]"),
+                        is_bot=is_bot_query or author.endswith("[bot]"),
                         created_at=_parse_iso(node["createdAt"]),
                         merged_at=_parse_iso(node.get("mergedAt")),
                         closed_at=_parse_iso(node.get("closedAt")),
@@ -94,10 +101,16 @@ class GitHubCollector:
         results: list[Review] = []
         frm_dt = datetime.combine(frm, time.min, tzinfo=timezone.utc)
         to_dt = datetime.combine(to, time.max, tzinfo=timezone.utc)
+        query_login = _author_query_value(gh_login)
+        # When matching against the GraphQL response, the bot's login may come
+        # back without the [bot] suffix even though search uses `app/<name>`.
+        reviewer_match_logins = {gh_login}
+        if query_login.startswith("app/"):
+            reviewer_match_logins.add(query_login.removeprefix("app/"))
 
         for org in self._orgs:
             q = (
-                f"is:pr reviewed-by:{gh_login} -author:{gh_login} "
+                f"is:pr reviewed-by:{query_login} -author:{query_login} "
                 f"org:{org} updated:{frm.isoformat()}..{to.isoformat()}"
             )
             log.info("[gh] %s", q)
@@ -112,7 +125,7 @@ class GitHubCollector:
                     )
                 for r in reviews_conn.get("nodes") or []:
                     reviewer = (r.get("author") or {}).get("login")
-                    if reviewer != gh_login:
+                    if reviewer not in reviewer_match_logins:
                         continue
                     state = r.get("state")
                     if state not in VALID_REVIEW_STATES:
@@ -148,10 +161,14 @@ class GitHubCollector:
         results: list[IssueComment] = []
         frm_dt = datetime.combine(frm, time.min, tzinfo=timezone.utc)
         to_dt = datetime.combine(to, time.max, tzinfo=timezone.utc)
+        query_login = _author_query_value(gh_login)
+        commenter_match_logins = {gh_login}
+        if query_login.startswith("app/"):
+            commenter_match_logins.add(query_login.removeprefix("app/"))
 
         for org in self._orgs:
             q = (
-                f"is:pr commenter:{gh_login} -author:{gh_login} "
+                f"is:pr commenter:{query_login} -author:{query_login} "
                 f"org:{org} updated:{frm.isoformat()}..{to.isoformat()}"
             )
             log.info("[gh] %s", q)
@@ -166,7 +183,7 @@ class GitHubCollector:
                     )
                 for c in comments_conn.get("nodes") or []:
                     commenter = (c.get("author") or {}).get("login")
-                    if commenter != gh_login:
+                    if commenter not in commenter_match_logins:
                         continue
                     created = _parse_iso(c.get("createdAt"))
                     if created is None or not (frm_dt <= created <= to_dt):
@@ -205,6 +222,18 @@ def _parse_iso(s: str | None) -> datetime | None:
     if not s:
         return None
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _author_query_value(login: str) -> str:
+    """Translate a teams.yaml github login into the form GitHub Search expects.
+
+    Bot accounts in REST/GraphQL appear as `dependabot[bot]`, but GitHub Search
+    won't match `author:dependabot[bot]` — bot apps must be referenced as
+    `app/<name>`. Plain user logins pass through unchanged.
+    """
+    if login.endswith("[bot]"):
+        return f"app/{login[:-len('[bot]')]}"
+    return login
 
 
 def _parse_reviews(
