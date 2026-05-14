@@ -8,6 +8,15 @@ Use **python-docx** for the document and **matplotlib** for the charts. Both are
 
 The team lead reads this before a 1:1 or retro. They know the team, they know the people, they know the work. They do **not** need a primer on what their team does — they need patterns they might have missed and questions worth asking.
 
+## Calendar data — all-day events are split out
+
+Each member in `metrics.json` has two calendar lists under `raw`:
+
+- `busy_blocks_by_member` — **regular meetings only**. Use these for meeting hours, focus blocks, fragmentation, after-hours.
+- `all_day_blocks_by_member` — **all-day events** (PTO, OOO, holidays, offsites). Detected via midnight-aligned local boundaries. Useful for surfacing PTO context (e.g. "alice took 8 days off in Q1, which explains her lower PR count") — never count them as meetings.
+
+The pre-computed per-person calendar metrics already exclude all-day events.
+
 ## PR state semantics — read this first
 
 Each PR in `metrics.json` has three timestamp fields that determine its state:

@@ -105,7 +105,8 @@ class RawPeriodData(BaseModel):
     prs: list[PullRequest] = []                    # team-authored PRs (with embedded reviews)
     reviews_given: list[Review] = []               # by team members on others' PRs
     comments_left: list[IssueComment] = []         # by team members on others' PRs
-    busy_blocks_by_member: dict[str, list[BusyBlock]] = {}  # google email -> blocks
+    busy_blocks_by_member: dict[str, list[BusyBlock]] = {}    # regular meetings only
+    all_day_blocks_by_member: dict[str, list[BusyBlock]] = {}  # PTO / OOO / holidays / offsites
 
 
 class PeriodReport(BaseModel):

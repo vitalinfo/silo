@@ -9,7 +9,9 @@ from silo.metrics.load import (
     after_hours_busy_per_week,
     focus_block_hours_per_week,
     fragmentation_score,
+    is_all_day_in_tz,
     meeting_hours_per_week,
+    partition_all_day,
 )
 from silo.types import BusyBlock
 
@@ -116,3 +118,46 @@ def test_after_hours_split_block_counts_only_outside_portion():
         datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc),
     )]
     assert after_hours_busy_per_week(blocks, WH, TZ, FRM, TO) == pytest.approx(1.0 / PERIOD_WEEKS)
+
+
+# --- all-day detection ----------------------------------------------------
+
+def test_is_all_day_single_day_pto():
+    # PTO on Mon Jan 5 NY = 2026-01-05 00:00 NY (05:00 UTC) -> 2026-01-06 00:00 NY (05:00 UTC)
+    b = _block(
+        datetime(2026, 1, 5, 5, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 6, 5, 0, tzinfo=timezone.utc),
+    )
+    assert is_all_day_in_tz(b, TZ) is True
+
+
+def test_is_all_day_multi_day_vacation():
+    # Vacation Mon-Fri NY = 5 days
+    b = _block(
+        datetime(2026, 1, 5, 5, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 10, 5, 0, tzinfo=timezone.utc),
+    )
+    assert is_all_day_in_tz(b, TZ) is True
+
+
+def test_is_all_day_regular_meeting_is_not():
+    # 10:00-11:00 NY = 15:00-16:00 UTC
+    b = _block(
+        datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 16, 0, tzinfo=timezone.utc),
+    )
+    assert is_all_day_in_tz(b, TZ) is False
+
+
+def test_partition_separates_pto_from_meetings():
+    meeting = _block(
+        datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 16, 0, tzinfo=timezone.utc),
+    )
+    pto = _block(
+        datetime(2026, 1, 5, 5, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 6, 5, 0, tzinfo=timezone.utc),
+    )
+    regular, all_day = partition_all_day([meeting, pto, meeting], TZ)
+    assert regular == [meeting, meeting]
+    assert all_day == [pto]

@@ -95,6 +95,15 @@ def _build_period_report() -> PeriodReport:
                 ],
                 "bob@example.com": [],
             },
+            all_day_blocks_by_member={
+                "alice@example.com": [
+                    BusyBlock(
+                        google_email="alice@example.com",
+                        start=datetime(2026, 1, 5, 5, tzinfo=timezone.utc),
+                        end=datetime(2026, 1, 6, 5, tzinfo=timezone.utc),
+                    )
+                ],
+            },
         ),
     )
 
@@ -134,6 +143,8 @@ def test_serialize_run_writes_expected_shape(tmp_path):
     assert len(raw["reviews_given"]) == 1
     assert len(raw["comments_left"]) == 1
     assert "alice@example.com" in raw["busy_blocks_by_member"]
+    assert "alice@example.com" in raw["all_day_blocks_by_member"]
+    assert len(raw["all_day_blocks_by_member"]["alice@example.com"]) == 1
 
 
 def test_serialize_omits_raw_when_missing(tmp_path):

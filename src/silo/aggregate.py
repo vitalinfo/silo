@@ -20,6 +20,7 @@ from .metrics.load import (
     focus_block_hours_per_week,
     fragmentation_score,
     meeting_hours_per_week,
+    partition_all_day,
 )
 from .metrics.review_health import (
     pct_prs_with_substantive_review,
@@ -39,19 +40,25 @@ def build_period_report(
     wh = run_cfg.work_hours
     frm, to = period.from_, period.to
 
-    # Per-person collection
-    per_person: list[tuple] = []  # (member, prs, reviews, comments, blocks)
+    # Per-person collection. Calendar blocks are partitioned into regular meetings
+    # vs all-day events (PTO / OOO / holidays / offsites) so load metrics ignore PTO.
+    per_person: list[tuple] = []  # (member, prs, reviews, comments, regular_blocks, all_day_blocks)
     for m in team.members:
         prs = gh.prs_authored(m.github, frm, to)
         reviews = gh.reviews_given(m.github, frm, to)
         comments = gh.comments_left(m.github, frm, to)
-        # Bots / service accounts have no calendar. Calendar-derived metrics are skipped.
-        blocks = cal.busy_blocks(m.google, frm, to) if m.google else []
-        per_person.append((m, prs, reviews, comments, blocks))
+        if m.google:
+            regular_blocks, all_day_blocks = partition_all_day(
+                cal.busy_blocks(m.google, frm, to), m.zoneinfo
+            )
+        else:
+            # Bots / service accounts have no calendar.
+            regular_blocks, all_day_blocks = [], []
+        per_person.append((m, prs, reviews, comments, regular_blocks, all_day_blocks))
 
     # Per-person metrics
     person_metrics: list[PersonMetrics] = []
-    for m, prs, reviews, comments, blocks in per_person:
+    for m, prs, reviews, comments, blocks, _all_day in per_person:
         cycle = pr_cycle_time_hours(prs)
         ttfr = time_to_first_review_hours(prs, reviews)  # reviews given to author's PRs
         sizes = pr_sizes_lines(prs)
@@ -78,8 +85,8 @@ def build_period_report(
         )
 
     # Team-level pools
-    all_team_prs = [pr for _, prs, _, _, _ in per_person for pr in prs]
-    all_team_reviews = [r for _, _, revs, _, _ in per_person for r in revs]
+    all_team_prs = [pr for _, prs, _, _, _, _ in per_person for pr in prs]
+    all_team_reviews = [r for _, _, revs, _, _, _ in per_person for r in revs]
 
     team_cycle = pr_cycle_time_hours(all_team_prs)
     team_ttfr = time_to_first_review_hours(all_team_prs, all_team_reviews)
@@ -107,9 +114,12 @@ def build_period_report(
     raw = RawPeriodData(
         prs=all_team_prs,
         reviews_given=all_team_reviews,
-        comments_left=[c for _, _, _, cmts, _ in per_person for c in cmts],
+        comments_left=[c for _, _, _, cmts, _, _ in per_person for c in cmts],
         busy_blocks_by_member={
-            m.google: blocks for m, _, _, _, blocks in per_person if m.google
+            m.google: blocks for m, _, _, _, blocks, _ in per_person if m.google
+        },
+        all_day_blocks_by_member={
+            m.google: all_day for m, _, _, _, _, all_day in per_person if m.google and all_day
         },
     )
 

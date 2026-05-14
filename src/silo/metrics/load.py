@@ -7,7 +7,7 @@ the same for the whole team via `WorkHours` (start, end, workdays).
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Iterator
 from zoneinfo import ZoneInfo
 
@@ -16,6 +16,32 @@ from ..types import BusyBlock
 
 FOCUS_BLOCK_MIN_HOURS = 2.0
 _SECONDS_PER_HOUR = 3600.0
+
+
+def is_all_day_in_tz(block: BusyBlock, tz: ZoneInfo) -> bool:
+    """Heuristic: an all-day event lands on midnight boundaries in the user's tz.
+
+    Google Calendar freebusy strips all metadata, but all-day events
+    (and OOO / vacation markers) consistently start at local 00:00 and end at
+    local 00:00 of a later day. Regular meetings essentially never line up
+    that way, so this heuristic has very few false positives.
+    """
+    start_local = block.start.astimezone(tz)
+    end_local = block.end.astimezone(tz)
+    return start_local.time() == time(0, 0) and end_local.time() == time(0, 0)
+
+
+def partition_all_day(
+    blocks: list[BusyBlock], tz: ZoneInfo
+) -> tuple[list[BusyBlock], list[BusyBlock]]:
+    """Split busy blocks into (regular, all_day). All-day events are PTO / OOO /
+    holidays / offsites; downstream load metrics should ignore them so they
+    don't crush focus-block hours or inflate meeting totals."""
+    regular: list[BusyBlock] = []
+    all_day: list[BusyBlock] = []
+    for b in blocks:
+        (all_day if is_all_day_in_tz(b, tz) else regular).append(b)
+    return regular, all_day
 
 
 def meeting_hours_per_week(

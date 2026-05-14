@@ -131,5 +131,9 @@ def _serialize_period(r: PeriodReport) -> dict:
                 email: [b.model_dump(mode="json") for b in blocks]
                 for email, blocks in r.raw.busy_blocks_by_member.items()
             },
+            "all_day_blocks_by_member": {
+                email: [b.model_dump(mode="json") for b in blocks]
+                for email, blocks in r.raw.all_day_blocks_by_member.items()
+            },
         }
     return out

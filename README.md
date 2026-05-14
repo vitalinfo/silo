@@ -26,7 +26,7 @@ silo is responsible for collection + serialization. Cowork is responsible for an
 | GitHub PRs (authored by team) | title, url, author, created/merged/closed, additions, deletions, commits count, pending review requests at merge, all reviews on the PR, bot flag | via GraphQL, multi-org, paginated |
 | GitHub reviews (by team members) | state, submitted_at, body length, reviewer, PR ref | the "what did this person review outside their own PRs" set |
 | GitHub comments (by team members) | author, created_at, body length, PR ref | top-level PR comments only (not inline) |
-| Google Calendar | busy intervals per member | freebusy API; no event titles, no attendees |
+| Google Calendar | busy intervals per member | freebusy API; no event titles, no attendees. All-day events (PTO / OOO / holidays / offsites) are detected by their midnight-aligned local boundaries and surfaced separately so they don't inflate meeting/focus metrics. |
 
 All raw records are cached locally in `.cache/silo.sqlite` so re-runs over the
 same window are near-instant.

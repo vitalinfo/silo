@@ -8,6 +8,15 @@ Use **python-docx** for the document and **matplotlib** for the charts. Both are
 
 CTOs and VPs read this to understand patterns across teams. They will compare teams in their heads regardless of how the data is presented, so framing matters: this report's job is to make those comparisons **fair and contextualized**, not to rank.
 
+## Calendar data — all-day events are split out
+
+Each member in `metrics.json` has two calendar lists under `raw`:
+
+- `busy_blocks_by_member` — **regular meetings only**. Use these for meeting hours, focus blocks, fragmentation, after-hours.
+- `all_day_blocks_by_member` — **all-day events** (PTO, OOO, holidays, offsites). Detected heuristically via midnight-aligned local boundaries. **Do not** count these as "meetings"; they would crush focus-time and inflate meeting hours. Useful for surfacing PTO patterns or normalizing per-person availability if needed.
+
+The pre-computed per-person calendar metrics (`meeting_hours_per_week`, `focus_block_hours_per_week`, etc.) already exclude all-day events.
+
 ## PR state semantics — read this first
 
 Each PR in `metrics.json` has three timestamp fields that determine its state:
