@@ -18,17 +18,27 @@ FOCUS_BLOCK_MIN_HOURS = 2.0
 _SECONDS_PER_HOUR = 3600.0
 
 
-def is_all_day_in_tz(block: BusyBlock, tz: ZoneInfo) -> bool:
-    """Heuristic: an all-day event lands on midnight boundaries in the user's tz.
+ALL_DAY_MIN_HOURS = 22.0  # below this could plausibly be a long real meeting
 
-    Google Calendar freebusy strips all metadata, but all-day events
-    (and OOO / vacation markers) consistently start at local 00:00 and end at
-    local 00:00 of a later day. Regular meetings essentially never line up
-    that way, so this heuristic has very few false positives.
+
+def is_all_day_in_tz(block: BusyBlock, tz: ZoneInfo) -> bool:
+    """Heuristic detection of PTO / OOO / holiday / multi-day events.
+
+    Matches if EITHER:
+      - both endpoints land on local midnight (standard all-day-event signature), OR
+      - the block spans >= ALL_DAY_MIN_HOURS (22h), regardless of alignment.
+
+    The second branch catches Google "Out of office" events, which can have
+    non-midnight boundaries due to how Google stores them across the user's
+    tz and DST transitions (e.g. a 6-day OOO showing up as
+    `2026-04-01T00:00:00Z .. 2026-04-06T22:00:00Z` for a Madrid user).
     """
     start_local = block.start.astimezone(tz)
     end_local = block.end.astimezone(tz)
-    return start_local.time() == time(0, 0) and end_local.time() == time(0, 0)
+    if start_local.time() == time(0, 0) and end_local.time() == time(0, 0):
+        return True
+    duration_hours = (block.end - block.start).total_seconds() / 3600.0
+    return duration_hours >= ALL_DAY_MIN_HOURS
 
 
 def partition_all_day(

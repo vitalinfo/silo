@@ -149,6 +149,27 @@ def test_is_all_day_regular_meeting_is_not():
     assert is_all_day_in_tz(b, TZ) is False
 
 
+def test_is_all_day_long_ooo_with_unaligned_boundaries():
+    """Google OOO can produce blocks that don't hit midnight in any tz
+    (e.g. a 6-day OOO for a Madrid user: 2026-04-01T00:00:00Z .. 2026-04-06T22:00:00Z).
+    The duration fallback should still flag this as all-day."""
+    madrid = ZoneInfo("Europe/Madrid")
+    b = _block(
+        datetime(2026, 4, 1, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 4, 6, 22, 0, tzinfo=timezone.utc),
+    )
+    assert is_all_day_in_tz(b, madrid) is True
+
+
+def test_is_all_day_long_meeting_below_threshold_is_not():
+    # A full work day (9-17 = 8 hours) is NOT all-day.
+    b = _block(
+        datetime(2026, 1, 5, 14, 0, tzinfo=timezone.utc),
+        datetime(2026, 1, 5, 22, 0, tzinfo=timezone.utc),
+    )
+    assert is_all_day_in_tz(b, TZ) is False
+
+
 def test_partition_separates_pto_from_meetings():
     meeting = _block(
         datetime(2026, 1, 5, 15, 0, tzinfo=timezone.utc),
