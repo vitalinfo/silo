@@ -56,6 +56,11 @@ def build_period_report(
             regular_blocks, all_day_blocks = [], []
         per_person.append((m, prs, reviews, comments, regular_blocks, all_day_blocks))
 
+    # Bot members are attributed only to repos non-bot team members also touched in
+    # this period. Without this filter, org-wide bot activity (dependabot in every
+    # repo) leaks into a team's signal even when the team doesn't touch those repos.
+    per_person = _restrict_bot_prs_to_team_repos(per_person)
+
     # Per-person metrics
     person_metrics: list[PersonMetrics] = []
     for m, prs, reviews, comments, blocks, _all_day in per_person:
@@ -139,3 +144,20 @@ def _avg_skip_none(values: list[float | None]) -> float | None:
     if not real:
         return None
     return mean(real)
+
+
+def _restrict_bot_prs_to_team_repos(per_person: list[tuple]) -> list[tuple]:
+    """Filter bot members' PR lists to (org, repo) pairs that non-bot team members
+    also touched in this period. Returns a new list; input is not mutated."""
+    team_repos = {
+        (pr.org, pr.repo)
+        for m, prs, *_ in per_person
+        if not m.github.endswith("[bot]")
+        for pr in prs
+    }
+    out = []
+    for m, prs, reviews, comments, reg, all_day in per_person:
+        if m.github.endswith("[bot]"):
+            prs = [pr for pr in prs if (pr.org, pr.repo) in team_repos]
+        out.append((m, prs, reviews, comments, reg, all_day))
+    return out

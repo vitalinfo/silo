@@ -103,6 +103,12 @@ and omit `google`. Their PRs are collected (so throughput counts are accurate)
 but calendar-derived metrics are skipped. Each PR also has an `is_bot` flag in
 the JSON, derived from the `[bot]` suffix on the GitHub login.
 
+Bot members are also **scoped to repos that non-bot members touched in the
+period**. Without this, `is:pr author:app/dependabot` would pull every
+dependabot PR in the org (including repos this team doesn't work on) and
+bleed into the team's signal. So adding `dependabot[bot]` to a team
+effectively means "show me dependabot activity in *this team's* repos."
+
 ### `config/run.yaml`
 
 ```yaml
